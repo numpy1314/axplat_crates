@@ -186,8 +186,8 @@ unsafe extern "C" fn _start() -> ! {
         b      .",
         cache_invalidate = sym cache_invalidate,
         init_boot_page_table = sym init_boot_page_table,
-        init_mmu_el2 = sym init_mmu_el2,
-        switch_to_el2 = sym switch_to_el2,
+        init_mmu_el2 = sym axcpu::init::init_mmu_el2,
+        switch_to_el2 = sym axcpu::init::switch_to_el2,
         enable_fp = sym enable_fp,
         boot_stack = sym BOOT_STACK,
         boot_stack_size = const TASK_STACK_SIZE,
@@ -195,61 +195,6 @@ unsafe extern "C" fn _start() -> ! {
         entry = sym axplat::call_main,
         options(noreturn),
     );
-}
-
-#[cfg(feature = "arm_el2")]
-unsafe fn init_mmu_el2() {
-    // Set EL1 to 64bit.
-    HCR_EL2.write(HCR_EL2::RW::EL1IsAarch64);
-
-    // Device-nGnRE memory
-    let attr0 = MAIR_EL2::Attr0_Device::nonGathering_nonReordering_EarlyWriteAck;
-    // Normal memory
-    let attr1 = MAIR_EL2::Attr1_Normal_Inner::WriteBack_NonTransient_ReadWriteAlloc
-        + MAIR_EL2::Attr1_Normal_Outer::WriteBack_NonTransient_ReadWriteAlloc;
-    MAIR_EL2.write(attr0 + attr1); // 0xff_04
-
-    // Enable TTBR0 and TTBR1 walks, page size = 4K, vaddr size = 48 bits, paddr size = 40 bits.
-    let tcr_flags0 = TCR_EL2::TG0::KiB_4
-        + TCR_EL2::SH0::Inner
-        + TCR_EL2::ORGN0::WriteBack_ReadAlloc_WriteAlloc_Cacheable
-        + TCR_EL2::IRGN0::WriteBack_ReadAlloc_WriteAlloc_Cacheable
-        + TCR_EL2::T0SZ.val(16);
-    TCR_EL2.write(TCR_EL2::PS::Bits_40 + tcr_flags0);
-    barrier::isb(barrier::SY);
-
-    let root_paddr = PhysAddr::from(BOOT_PT_L0.as_ptr() as usize).as_usize() as _;
-    TTBR0_EL2.set(root_paddr);
-
-    // Flush the entire TLB
-    crate::arch::flush_tlb(None);
-
-    // Enable the MMU and turn on I-cache and D-cache
-    SCTLR_EL2.modify(SCTLR_EL2::M::Enable + SCTLR_EL2::C::Cacheable + SCTLR_EL2::I::Cacheable);
-    barrier::isb(barrier::SY);
-}
-
-#[cfg(feature = "arm_el2")]
-unsafe fn switch_to_el2() {
-    SPSel.write(SPSel::SP::ELx);
-    let current_el = CurrentEL.read(CurrentEL::EL);
-
-    if current_el == 3 {
-        SCR_EL3.write(
-            SCR_EL3::NS::NonSecure + SCR_EL3::HCE::HvcEnabled + SCR_EL3::RW::NextELIsAarch64,
-        );
-        SPSR_EL3.write(
-            SPSR_EL3::M::EL2h
-                + SPSR_EL3::D::Masked
-                + SPSR_EL3::A::Masked
-                + SPSR_EL3::I::Masked
-                + SPSR_EL3::F::Masked,
-        );
-        ELR_EL3.set(LR.get());
-        SP_EL1.set(BOOT_STACK.as_ptr_range().end as u64);
-        // This should be SP_EL2. To
-        asm::eret();
-    }
 }
 
 #[cfg(feature = "arm_el2")]
