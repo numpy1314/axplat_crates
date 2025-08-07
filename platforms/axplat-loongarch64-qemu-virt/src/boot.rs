@@ -29,6 +29,14 @@ unsafe fn init_boot_page_table() {
             MappingFlags::READ | MappingFlags::WRITE | MappingFlags::EXECUTE,
             true,
         );
+
+        // Add VMM page table entry for GPA->HPA mapping
+        // GPA range: 0x4000_0000..0x8000_0000 (1G block)
+        BOOT_PT_L1[1] = LA64PTE::new_page(
+            pa!(0x4000_0000),
+            MappingFlags::READ | MappingFlags::WRITE | MappingFlags::EXECUTE,
+            true,
+        );
     }
 }
 
@@ -56,10 +64,20 @@ fn enable_virtualization() {
 
         // Check LVZ bit (bit 10)
         if (cpucfg2 & (1 << 10)) != 0 {
-            // Enable LVZ extension (write to virtualization control CSR)
+            // Enable LVZ extension (control CSR 0x1A0)
             core::arch::asm!(
-                "csrwr $0, 0x1A0", // Assume 0x1A0 is the LVZ control CSR
+                "csrwr $0, 0x1A0", // Assume 0x1A0 is LVZ control CSR
                 in(reg) 1 << 0, // Set enable bit
+                options(nomem, nostack),
+            );
+
+            // Initialize GTLBC register (0x1AC) for TLB management
+            // Set GMTLBNum (bits 0-5): allocate 32 MTLB entries for guests
+            // Set TGID (bits 16-23): default Guest ID = 1
+            let gtlbc_config = (32 << 0) | (1 << 16);
+            core::arch::asm!(
+                "csrwr $0, 0x1AC", // LOONGARCH_CSR_GTLBC
+                in(reg) gtlbc_config,
                 options(nomem, nostack),
             );
         }
