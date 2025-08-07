@@ -43,6 +43,29 @@ fn enable_fp_simd() {
     }
 }
 
+/// Enable LoongArch Virtualization Extension (LVZ)
+fn enable_virtualization() {
+    unsafe {
+        // Read CPUCFG.2 register (address 0x702)
+        let mut cpucfg2: u64;
+        core::arch::asm!(
+            "csrrd $0, 0x702", // Read CPUCFG.2 CSR register
+            out(reg) cpucfg2,
+            options(nomem, nostack),
+        );
+
+        // Check LVZ bit (bit 10)
+        if (cpucfg2 & (1 << 10)) != 0 {
+            // Enable LVZ extension (write to virtualization control CSR)
+            core::arch::asm!(
+                "csrwr $0, 0x1A0", // Assume 0x1A0 is the LVZ control CSR
+                in(reg) 1 << 0, // Set enable bit
+                options(nomem, nostack),
+            );
+        }
+    }
+}
+
 fn init_mmu() {
     axcpu::init::init_mmu(
         axplat::mem::virt_to_phys(va!(&raw const BOOT_PT_L0 as usize)),
@@ -72,6 +95,7 @@ unsafe extern "C" fn _start() -> ! {
 
         # Init MMU
         bl          {enable_fp_simd}    # enable FP/SIMD instructions
+        bl          {enable_virtualization} # enable LVZ virtualization extension
         bl          {init_boot_page_table}
         bl          {init_mmu}          # setup boot page table and enable MMU
 
@@ -82,6 +106,7 @@ unsafe extern "C" fn _start() -> ! {
         boot_stack_size = const BOOT_STACK_SIZE,
         boot_stack = sym BOOT_STACK,
         enable_fp_simd = sym enable_fp_simd,
+        enable_virtualization = sym enable_virtualization,
         init_boot_page_table = sym init_boot_page_table,
         init_mmu = sym init_mmu,
         entry = sym axplat::call_main,
