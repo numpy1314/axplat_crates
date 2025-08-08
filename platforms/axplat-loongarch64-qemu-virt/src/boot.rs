@@ -1,7 +1,13 @@
 use axplat::mem::{Aligned4K, pa, va};
 use page_table_entry::{GenericPTE, MappingFlags, loongarch64::LA64PTE};
-
 use crate::config::plat::{BOOT_STACK_SIZE, PHYS_VIRT_OFFSET};
+
+// Define LoongArch virtualization-related CSR address constants
+const LOONGARCH_CSR_CPUCFG2: u64 = 0x702;   // CPU configuration register 2
+const LOONGARCH_CSR_GTLBC: u64 = 0x15;       // Virtual machine TLB control register
+const LOONGARCH_CSR_GSTAT: u64 = 0x50;       // Guest status register
+const LOONGARCH_CSR_DMWIN0: u64 = 0x180;     // Direct mapping window 0
+const LOONGARCH_CSR_DMWIN1: u64 = 0x181;     // Direct mapping window 1
 
 #[unsafe(link_section = ".bss.stack")]
 static mut BOOT_STACK: [u8; BOOT_STACK_SIZE] = [0; BOOT_STACK_SIZE];
@@ -42,8 +48,8 @@ unsafe fn init_boot_page_table() {
 
 fn enable_fp_simd() {
     // FP/SIMD needs to be enabled early, as the compiler may generate SIMD
-    // instructions in the bootstrapping code to speed up the operations
-    // like `memset` and `memcpy`.
+    // instructions in the bootstrapping code to speed up operations
+    // like `memset` and `memcpy`
     #[cfg(feature = "fp-simd")]
     {
         axcpu::asm::enable_fp();
@@ -57,27 +63,35 @@ fn enable_virtualization() {
         // Read CPUCFG.2 register (address 0x702)
         let mut cpucfg2: u64;
         core::arch::asm!(
-            "csrrd $0, 0x702", // Read CPUCFG.2 CSR register
+            "csrrd {}, {}", 
             out(reg) cpucfg2,
+            const LOONGARCH_CSR_CPUCFG2,
             options(nomem, nostack),
         );
 
         // Check LVZ bit (bit 10)
         if (cpucfg2 & (1 << 10)) != 0 {
-            // Enable LVZ extension (control CSR 0x1A0)
+            // Initialize GTLBC register (0x15) for TLB management
+            // Set GMTLBNum (bits 0-5): Allocate 32 MTLB entries for virtual machines
+            // Set useTGID (bit 12): Use TGID field
+            // Set TGID (bits 16-23): Default guest ID = 1
+            let gtlbc_config = (32 << 0)  |  // GMTLBNum=32
+                               (1 << 12) |  // useTGID=1
+                               (1 << 16);   // TGID=1
+            
             core::arch::asm!(
-                "csrwr $0, 0x1A0", // Assume 0x1A0 is LVZ control CSR
-                in(reg) 1 << 0, // Set enable bit
+                "csrwr {}, {}", 
+                in(reg) gtlbc_config,
+                const LOONGARCH_CSR_GTLBC,
                 options(nomem, nostack),
             );
 
-            // Initialize GTLBC register (0x1AC) for TLB management
-            // Set GMTLBNum (bits 0-5): allocate 32 MTLB entries for guests
-            // Set TGID (bits 16-23): default Guest ID = 1
-            let gtlbc_config = (32 << 0) | (1 << 16);
+            // Initialize GSTAT register (0x50)
+            // Set GID (bits 16-23): Default guest ID = 1
             core::arch::asm!(
-                "csrwr $0, 0x1AC", // LOONGARCH_CSR_GTLBC
-                in(reg) gtlbc_config,
+                "csrwr {}, {}", 
+                in(reg) 1 << 16,
+                const LOONGARCH_CSR_GSTAT,
                 options(nomem, nostack),
             );
         }
@@ -91,9 +105,7 @@ fn init_mmu() {
     );
 }
 
-/// The earliest entry point for the primary CPU.
-///
-/// We can't use bl to jump to higher address, so we use jirl to jump to higher address.
+/// The earliest entry point for the primary CPU
 #[unsafe(naked)]
 #[unsafe(no_mangle)]
 #[unsafe(link_section = ".text.boot")]
@@ -101,26 +113,28 @@ unsafe extern "C" fn _start() -> ! {
     core::arch::naked_asm!("
         ori         $t0, $zero, 0x1     # CSR_DMW1_PLV0
         lu52i.d     $t0, $t0, -2048     # UC, PLV0, 0x8000 xxxx xxxx xxxx
-        csrwr       $t0, 0x180          # LOONGARCH_CSR_DMWIN0
+        csrwr       $t0, {}             # LOONGARCH_CSR_DMWIN0
         ori         $t0, $zero, 0x11    # CSR_DMW1_MAT | CSR_DMW1_PLV0
         lu52i.d     $t0, $t0, -1792     # CA, PLV0, 0x9000 xxxx xxxx xxxx
-        csrwr       $t0, 0x181          # LOONGARCH_CSR_DMWIN1
+        csrwr       $t0, {}             # LOONGARCH_CSR_DMWIN1
 
-        # Setup Stack
+        # Setup stack
         la.global   $sp, {boot_stack}
         li.d        $t0, {boot_stack_size}
-        add.d       $sp, $sp, $t0       # setup boot stack
+        add.d       $sp, $sp, $t0       # Setup boot stack
 
-        # Init MMU
-        bl          {enable_fp_simd}    # enable FP/SIMD instructions
-        bl          {enable_virtualization} # enable LVZ virtualization extension
+        # Initialize MMU
+        bl          {enable_fp_simd}    # Enable FP/SIMD instructions
+        bl          {enable_virtualization} # Enable LVZ virtualization extension
         bl          {init_boot_page_table}
-        bl          {init_mmu}          # setup boot page table and enable MMU
+        bl          {init_mmu}          # Setup boot page table and enable MMU
 
         csrrd       $a0, 0x20           # cpuid
-        li.d        $a1, 0              # TODO: parse dtb
+        li.d        $a1, 0              # TODO: Parse dtb
         la.global   $t0, {entry}
         jirl        $zero, $t0, 0",
+        const LOONGARCH_CSR_DMWIN0,
+        const LOONGARCH_CSR_DMWIN1,
         boot_stack_size = const BOOT_STACK_SIZE,
         boot_stack = sym BOOT_STACK,
         enable_fp_simd = sym enable_fp_simd,
@@ -131,7 +145,7 @@ unsafe extern "C" fn _start() -> ! {
     )
 }
 
-/// The earliest entry point for secondary CPUs.
+/// The earliest entry point for secondary CPUs
 #[cfg(feature = "smp")]
 #[unsafe(naked)]
 #[unsafe(no_mangle)]
@@ -140,22 +154,26 @@ unsafe extern "C" fn _start_secondary() -> ! {
     core::arch::naked_asm!("
         ori          $t0, $zero, 0x1     # CSR_DMW1_PLV0
         lu52i.d      $t0, $t0, -2048     # UC, PLV0, 0x8000 xxxx xxxx xxxx
-        csrwr        $t0, 0x180          # LOONGARCH_CSR_DMWIN0
+        csrwr        $t0, {}             # LOONGARCH_CSR_DMWIN0
         ori          $t0, $zero, 0x11    # CSR_DMW1_MAT | CSR_DMW1_PLV0
         lu52i.d      $t0, $t0, -1792     # CA, PLV0, 0x9000 xxxx xxxx xxxx
-        csrwr        $t0, 0x181          # LOONGARCH_CSR_DMWIN1
+        csrwr        $t0, {}             # LOONGARCH_CSR_DMWIN1
         la.abs       $t0, {sm_boot_stack_top}
-        ld.d         $sp, $t0,0          # read boot stack top
+        ld.d         $sp, $t0,0          # Read boot stack top
 
-        # Init MMU
-        bl           {enable_fp_simd}    # enable FP/SIMD instructions
-        bl           {init_mmu}          # setup boot page table and enable MMU
+        # Initialize MMU
+        bl           {enable_fp_simd}    # Enable FP/SIMD instructions
+        bl           {enable_virtualization} # Enable LVZ virtualization extension
+        bl           {init_mmu}          # Setup boot page table and enable MMU
 
-        csrrd        $a0, 0x20                  # cpuid
+        csrrd        $a0, 0x20           # cpuid
         la.global    $t0, {entry}
         jirl         $zero, $t0, 0",
+        const LOONGARCH_CSR_DMWIN0,
+        const LOONGARCH_CSR_DMWIN1,
         sm_boot_stack_top = sym super::mp::SMP_BOOT_STACK_TOP,
         enable_fp_simd = sym enable_fp_simd,
+        enable_virtualization = sym enable_virtualization,
         init_mmu = sym init_mmu,
         entry = sym axplat::call_secondary_main,
     )
