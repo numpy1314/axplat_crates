@@ -19,7 +19,7 @@ impl PowerIf for PowerImpl {
             warn!("HSM SBI extension is not supported for current SEE.");
             return;
         }
-        let entry = virt_to_phys(va!(_start_secondary as usize));
+        let entry = virt_to_phys(va!(_start_secondary as *const () as usize));
         sbi_rt::hart_start(cpu_id, entry.as_usize(), stack_top_paddr);
     }
 
@@ -31,5 +31,10 @@ impl PowerIf for PowerImpl {
         loop {
             axcpu::asm::halt();
         }
+    }
+
+    /// Get the number of CPU cores available on this platform.
+    fn cpu_num() -> usize {
+        crate::config::plat::MAX_CPU_NUM
     }
 }

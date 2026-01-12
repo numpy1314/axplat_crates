@@ -9,8 +9,9 @@ package = "axplat-x86-pc"       # str
 # Platform configs
 #
 [plat]
-# Number of CPUs.
-cpu-num = 1                     # uint
+# Maximum number of CPUs. For platforms that do not support runtime CPU number
+# detection, it's also the number of CPUs to boot.
+max-cpu-num = 1                 # uint
 # Base address of the whole physical memory.
 phys-memory-base = 0            # uint
 # Size of the whole physical memory. (128M)
@@ -57,3 +58,5 @@ pci-ranges = []                 # [(uint, uint)]
 timer-frequency = 4_000_000_000     # uint
 # Timer interrupt num.
 timer-irq = 0xf0                    # uint
+# IPI interrupt num
+ipi-irq = 0xf3                      # uint

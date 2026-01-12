@@ -9,8 +9,9 @@ package = "axplat-aarch64-phytium-pi"           # str
 # Platform configs
 #
 [plat]
-# Number of CPUs.
-cpu-num = 4                         # uint
+# Maximum number of CPUs. For platforms that do not support runtime CPU number
+# detection, it's also the number of CPUs to boot.
+max-cpu-num = 4                     # uint
 # Base address of the whole physical memory.
 phys-memory-base = 0x8000_0000      # uint
 # Size of the whole physical memory. (2G)
@@ -85,6 +86,8 @@ uart-paddr = 0x2800_D000        # uint
 uart-irq = 0x74                 # uint
 # Timer interrupt num (PPI, physical timer).
 timer-irq = 0x1e                # uint
+# IPI interrupt num
+ipi-irq = 1                     # uint
 
 # GIC CPU Interface base address
 gicc-paddr = 0x3080_0000        # uint

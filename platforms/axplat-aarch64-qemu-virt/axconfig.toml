@@ -9,8 +9,9 @@ package = "axplat-aarch64-qemu-virt"            # str
 # Platform configs
 #
 [plat]
-# Number of CPUs.
-cpu-num = 1                         # uint
+# Maximum number of CPUs. For platforms that do not support runtime CPU number
+# detection, it's also the number of CPUs to boot.
+max-cpu-num = 1                     # uint
 # Base address of the whole physical memory.
 phys-memory-base = 0x4000_0000      # uint
 # Size of the whole physical memory. (128M)
@@ -99,6 +100,8 @@ uart-paddr = 0x0900_0000        # uint
 uart-irq = 33                   # uint
 # Timer interrupt num (PPI, physical timer).
 timer-irq = 30                  # uint
+# IPI interrupt num
+ipi-irq = 1                     # uint
 
 # GIC CPU Interface base address
 gicc-paddr = 0x0801_0000        # uint

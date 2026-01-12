@@ -9,8 +9,9 @@ package = "axplat-aarch64-raspi"                # str
 # Platform configs
 #
 [plat]
-# Number of CPUs.
-cpu-num = 4                         # uint
+# Maximum number of CPUs. For platforms that do not support runtime CPU number
+# detection, it's also the number of CPUs to boot.
+max-cpu-num = 4                     # uint
 # Base address of the whole physical memory.
 phys-memory-base = 0x0              # uint
 # Size of the whole physical memory. (2G)
@@ -51,6 +52,8 @@ uart-paddr = 0xFE20_1000        # uint
 uart-irq = 0x99                 # uint
 # Timer interrupt num (PPI, physical timer)
 timer-irq = 30                  # uint
+# IPI interrupt num
+ipi-irq = 1                     # uint
 
 # GIC CPU Interface base address
 gicc-paddr = 0xFF84_2000        # uint

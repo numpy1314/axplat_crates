@@ -14,7 +14,7 @@ impl PowerIf for PowerImpl {
         use crate::config::plat::CPU_ID_LIST;
         use axplat::mem::{va, virt_to_phys};
 
-        let entry = virt_to_phys(va!(crate::boot::_start_secondary as usize));
+        let entry = virt_to_phys(va!(crate::boot::_start_secondary as *const () as usize));
         axplat_aarch64_peripherals::psci::cpu_on(
             CPU_ID_LIST[cpu_id],
             entry.as_usize(),
@@ -26,5 +26,10 @@ impl PowerIf for PowerImpl {
     fn system_off() -> ! {
         info!("Shutting down...");
         axplat_aarch64_peripherals::psci::system_off()
+    }
+
+    /// Get the number of CPU cores available on this platform.
+    fn cpu_num() -> usize {
+        crate::config::plat::MAX_CPU_NUM
     }
 }

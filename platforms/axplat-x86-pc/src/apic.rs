@@ -45,7 +45,7 @@ pub fn local_apic<'a>() -> &'a mut LocalApic {
     unsafe { LOCAL_APIC.assume_init_mut() }
 }
 
-#[cfg(feature = "smp")]
+#[cfg(any(feature = "smp", feature = "irq"))]
 pub fn raw_apic_id(id_u8: u8) -> u32 {
     if unsafe { IS_X2APIC } {
         id_u8 as u32
@@ -104,7 +104,7 @@ pub fn init_secondary() {
 
 #[cfg(feature = "irq")]
 mod irq_impl {
-    use axplat::irq::{HandlerTable, IrqHandler, IrqIf};
+    use axplat::irq::{HandlerTable, IpiTarget, IrqHandler, IrqIf};
 
     /// The maximum number of IRQs.
     const MAX_IRQ_COUNT: usize = 256;
@@ -153,6 +153,33 @@ mod irq_impl {
                 warn!("Unhandled IRQ {vector}");
             }
             unsafe { super::local_apic().end_of_interrupt() };
+        }
+
+        /// Sends an inter-processor interrupt (IPI) to the specified target CPU or all CPUs.
+        fn send_ipi(irq_num: usize, target: IpiTarget) {
+            match target {
+                IpiTarget::Current { cpu_id: _ } => {
+                    unsafe {
+                        super::local_apic().send_ipi_self(irq_num as _);
+                    };
+                }
+                IpiTarget::Other { cpu_id } => {
+                    let apic_id = super::raw_apic_id(cpu_id as u8);
+                    unsafe {
+                        super::local_apic().send_ipi(irq_num as _, apic_id as _);
+                    };
+                }
+                IpiTarget::AllExceptCurrent {
+                    cpu_id: _,
+                    cpu_num: _,
+                } => {
+                    use x2apic::lapic::IpiAllShorthand;
+                    unsafe {
+                        super::local_apic()
+                            .send_ipi_all(irq_num as _, IpiAllShorthand::AllExcludingSelf);
+                    };
+                }
+            }
         }
     }
 }
